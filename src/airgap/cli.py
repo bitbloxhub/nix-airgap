@@ -113,16 +113,19 @@ async def add_fods(
     await asyncio.gather(*(add_fod(fod) for fod in fods))
 
 
-def split_fods_by_metadata(
-    fods: list[str],
- ) -> tuple[list[str], list[str]]:
+def fod_metadata(fods: list[str]) -> dict[str, dict]:
     if not fods:
-        return [], []
-    metadata = json.loads(
+        return {}
+    return json.loads(
         run("nix", "path-info", "--json", "--json-format", "1", *fods)
     )
-    copyable = [fod for fod in fods if metadata[fod].get("ca") is not None]
-    broken = [fod for fod in fods if metadata[fod].get("ca") is None]
+
+
+def split_fods_by_metadata(
+    metadata: dict[str, dict],
+ ) -> tuple[list[str], list[str]]:
+    copyable = [fod for fod, info in metadata.items() if info.get("ca") is not None]
+    broken = [fod for fod, info in metadata.items() if info.get("ca") is None]
     return copyable, broken
 
 
@@ -146,6 +149,16 @@ def _main() -> None:
         "--show-build-frontier",
         action="store_true",
         help="Print derivations the remote build must realize",
+    )
+    parser.add_argument(
+        "--show-fod-frontier",
+        action="store_true",
+        help="Print FOD paths in the transfer frontier",
+    )
+    parser.add_argument(
+        "--show-cache-frontier",
+        action="store_true",
+        help="Print cache paths in the transfer frontier",
     )
     parser.add_argument(
         "--dry-run",
@@ -231,6 +244,7 @@ def _main() -> None:
         fod_frontier = unique([f"{drv}\t{path}" for kind, drv, path in plan if kind == "fod"])
         fod_drvs = unique([line.split("\t", 1)[0] for line in fod_frontier])
         fods = unique([line.split("\t", 1)[1] for line in fod_frontier])
+        fod_info = fod_metadata(fods)
 
         source_inputs = unique(
             f"/nix/store/{source}"
@@ -247,6 +261,20 @@ def _main() -> None:
         print(f"    trusted-cache frontier: {len(cache_frontier)} paths")
         print(f"    FOD frontier: {len(fods)} paths")
         print(f"    remote build frontier: {len(build_drvs)} derivations")
+        if args.show_fod_frontier:
+            print("    FOD paths:")
+            for fod in fods:
+                status = "valid ca" if fod_info[fod].get("ca") is not None else "missing ca"
+                print(f"      {status:<10} {fod}")
+        if args.show_cache_frontier:
+            print("    cache paths:")
+            cache_width = max(
+                (len(entry.split("\t", 1)[0]) for entry in cache_frontier),
+                default=0,
+            )
+            for entry in cache_frontier:
+                cache, path = entry.split("\t", 1)
+                print(f"      {cache:<{cache_width}} {path}")
         if args.show_build_frontier:
             print("    derivations:")
             for build_drv in sorted(build_drvs):
@@ -267,7 +295,7 @@ def _main() -> None:
                 *(f"{fod_drv}^*" for fod_drv in fod_drvs),
             )
         if fods:
-            copyable_fods, broken_fods = split_fods_by_metadata(fods)
+            copyable_fods, broken_fods = split_fods_by_metadata(fod_info)
             if copyable_fods:
                 print("==> Copying FODs")
                 run(

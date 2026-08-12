@@ -31,24 +31,24 @@ The command prints resulting store paths with `--print-out-paths`.
 
 ## Planning
 
-Use dry-run to evaluate and plan without connecting to SSH or transferring/building
-anything:
+Use `--dry-run` to plan locally without SSH, transfers, or builds:
 
 ```sh
 nix run .#default -- .#demo airgap --dry-run
 ```
 
-Print the derivations left for the remote build:
+The plan reports trusted-cache, FOD, and remote-build frontiers:
+
+- `--show-cache-frontier` lists each path and source cache.
+- `--show-fod-frontier` lists each FOD with `valid ca` or `missing ca` metadata.
+- `--show-build-frontier` lists derivations left for the remote machine.
+
+Use them together when needed:
 
 ```sh
-nix run .#default -- .#demo airgap --dry-run --show-build-frontier
+nix run .#default -- .#demo airgap --dry-run \
+  --show-cache-frontier --show-fod-frontier --show-build-frontier
 ```
-
-The plan reports:
-
-- trusted-cache frontier: outputs available from configured `TRUSTED_CACHES`
-- FOD frontier: fixed-output derivation outputs that must be transferred
-- remote build frontier: derivations left for the destination to realize
 
 Configure caches with either repeated flags or an environment variable:
 
