@@ -34,7 +34,7 @@
           users.users.test = {
             isNormalUser = true;
             openssh.authorizedKeys.keyFiles = [
-              ../vm-key.pub
+              ../vm/vm-key.pub
             ];
             extraGroups = [ "wheel" ];
           };
