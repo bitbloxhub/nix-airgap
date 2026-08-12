@@ -1,0 +1,7 @@
+Host airgap
+    HostName 127.0.0.1
+    Port 13964
+    User test
+    IdentityFile ./vm-key
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
