@@ -113,7 +113,7 @@ async def add_fods(
     await asyncio.gather(*(add_fod(fod) for fod in fods))
 
 
-def fod_metadata(fods: list[str]) -> dict[str, dict]:
+def fod_metadata(fods: list[str]) -> dict[str, dict | None]:
     if not fods:
         return {}
     return json.loads(
@@ -122,8 +122,14 @@ def fod_metadata(fods: list[str]) -> dict[str, dict]:
 
 
 def split_fods_by_metadata(
-    metadata: dict[str, dict],
- ) -> tuple[list[str], list[str]]:
+    metadata: dict[str, dict | None],
+) -> tuple[list[str], list[str]]:
+    missing = [fod for fod, info in metadata.items() if info is None]
+    if missing:
+        raise RuntimeError(
+            "FOD metadata missing after local realization: "
+            + ", ".join(missing)
+        )
     copyable = [fod for fod, info in metadata.items() if info.get("ca") is not None]
     broken = [fod for fod, info in metadata.items() if info.get("ca") is None]
     return copyable, broken
@@ -234,7 +240,8 @@ def _main() -> None:
                     )
                     plan.add(("fod", f"/nix/store/{node}", path))
                     continue
-                build_drvs.add(f"/nix/store/{node}")
+                build_drv = f"/nix/store/{node}"
+                build_drvs.add(build_drv)
                 for input_drv, input_data in data.get("inputs", {}).get("drvs", {}).items():
                     queue.extend(
                         (Path(input_drv).name, input_output)
@@ -244,14 +251,15 @@ def _main() -> None:
         fod_frontier = unique([f"{drv}\t{path}" for kind, drv, path in plan if kind == "fod"])
         fod_drvs = unique([line.split("\t", 1)[0] for line in fod_frontier])
         fods = unique([line.split("\t", 1)[1] for line in fod_frontier])
-        fod_info = fod_metadata(fods)
-
+        # Transfer every derivation in the recursive evaluation graph. The
+        # remote builder needs input .drv files even when their outputs come
+        # from a trusted cache.
         source_inputs = unique(
             f"/nix/store/{source}"
-            for build_drv in build_drvs
-            for source in derivations[Path(build_drv).name].get("inputs", {}).get("srcs", [])
+            for data in derivations.values()
+            for source in data.get("inputs", {}).get("srcs", [])
         )
-        source_closure = set(build_drvs)
+        source_closure = {f"/nix/store/{node}" for node in derivations}
         if source_inputs:
             source_closure.update(
                 run("nix", "path-info", "--recursive", *source_inputs).splitlines()
@@ -261,11 +269,10 @@ def _main() -> None:
         print(f"    trusted-cache frontier: {len(cache_frontier)} paths")
         print(f"    FOD frontier: {len(fods)} paths")
         print(f"    remote build frontier: {len(build_drvs)} derivations")
-        if args.show_fod_frontier:
+        if args.show_fod_frontier and args.dry_run:
             print("    FOD paths:")
             for fod in fods:
-                status = "valid ca" if fod_info[fod].get("ca") is not None else "missing ca"
-                print(f"      {status:<10} {fod}")
+                print(f"      {'not realized':<10} {fod}")
         if args.show_cache_frontier:
             print("    cache paths:")
             cache_width = max(
@@ -295,7 +302,13 @@ def _main() -> None:
                 *(f"{fod_drv}^*" for fod_drv in fod_drvs),
             )
         if fods:
+            fod_info = fod_metadata(fods)
             copyable_fods, broken_fods = split_fods_by_metadata(fod_info)
+            if args.show_fod_frontier:
+                print("    FOD paths:")
+                for fod in fods:
+                    status = "valid ca" if fod_info[fod]["ca"] is not None else "missing ca"
+                    print(f"      {status:<10} {fod}")
             if copyable_fods:
                 print("==> Copying FODs")
                 run(

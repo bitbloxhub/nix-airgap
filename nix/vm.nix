@@ -13,13 +13,11 @@
             ...
           }:
           {
-            boot.growPartition = true;
             environment.systemPackages = with pkgs; [
               bindfs
               git
               jq
             ];
-            fileSystems."/".autoResize = true;
             networking.hostName = "airgap";
             nix.settings = {
               substituters = lib.mkForce [ ];
@@ -45,6 +43,8 @@
               ];
             };
             virtualisation.vmVariant = {
+              boot.growPartition = true;
+              fileSystems."/".autoResize = true;
               systemd.services.shared-user = {
                 after = [ "run-shared\\x2draw.mount" ];
                 requires = [ "run-shared\\x2draw.mount" ];
@@ -136,6 +136,8 @@
               ];
             };
             virtualisation.vmVariant = {
+              boot.growPartition = true;
+              fileSystems."/".autoResize = true;
               systemd.services.shared-user = {
                 after = [ "run-shared\\x2draw.mount" ];
                 requires = [ "run-shared\\x2draw.mount" ];

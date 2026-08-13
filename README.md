@@ -69,7 +69,8 @@ bounded HTTP narinfo probes.
 - Trusted-cache outputs and healthy FODs (`ca != null`) transfer in batch with `nix copy`.
 - Broken FOD metadata (`ca = null`) uses bounded concurrent `nix store add` operations,
   reconstructing CA registration from `.drv` metadata and verifying each output path.
-- Derivations and source closure transfer with `nix copy`; remote Nix builds the output.
+- The evaluated `.drv` graph and sources for remote-built DRVs transfer with `nix copy`;
+  remote Nix builds the output.
 
 The FOD workaround avoids forwarding untrusted cache signatures. It addresses the
 Cachix metadata issue documented in
