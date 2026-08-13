@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from typing import Iterable
 import httpx
 import json
 import os
@@ -36,7 +37,7 @@ CACHE_PROBE_CONCURRENCY = 32
 FOD_ADD_CONCURRENCY = 8
 
 
-def unique(values: list[str]) -> list[str]:
+def unique(values: Iterable[str]) -> list[str]:
     return sorted(set(values))
 
 
@@ -240,10 +241,10 @@ def _main() -> None:
                         (Path(input_drv).name, input_output)
                         for input_output in input_data["outputs"]
                     )
-        cache_frontier = unique([f"{cache}\t{path}" for kind, cache, path in plan if kind == "cache"])
-        fod_frontier = unique([f"{drv}\t{path}" for kind, drv, path in plan if kind == "fod"])
-        fod_drvs = unique([line.split("\t", 1)[0] for line in fod_frontier])
-        fods = unique([line.split("\t", 1)[1] for line in fod_frontier])
+        cache_frontier = unique(f"{cache}\t{path}" for kind, cache, path in plan if kind == "cache")
+        fod_frontier = unique(f"{drv}\t{path}" for kind, drv, path in plan if kind == "fod")
+        fod_drvs = unique(line.split("\t", 1)[0] for line in fod_frontier)
+        fods = unique(line.split("\t", 1)[1] for line in fod_frontier)
         fod_info = fod_metadata(fods)
 
         source_inputs = unique(
@@ -313,14 +314,14 @@ def _main() -> None:
                 # store from .drv content-addressing metadata instead.
                 print("==> Adding broken FODs to remote store")
                 asyncio.run(add_fods(broken_fods, fod_specs, remote_store))
-        for cache in unique([line.split("\t", 1)[0] for line in cache_frontier]):
+        for cache in unique(line.split("\t", 1)[0] for line in cache_frontier):
             paths = [line.split("\t", 1)[1] for line in cache_frontier if line.startswith(f"{cache}\t")]
             if paths:
                 print(f"==> Copying trusted-cache frontier: {cache}")
                 run("nix", "copy", "--from", cache, "--to", remote_store, "--stdin", stdin="\n".join(paths) + "\n",)
 
         print("==> Copying derivation/source closure")
-        run("nix", "copy", "--no-recursive", "--to", remote_store, "--stdin", stdin="\n".join(unique(list(source_closure))) + "\n")
+        run("nix", "copy", "--no-recursive", "--to", remote_store, "--stdin", stdin="\n".join(unique(source_closure)) + "\n")
 
         print("==> Building on airgapped machine")
         remote_build_flags = (
