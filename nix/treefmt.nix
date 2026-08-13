@@ -12,5 +12,11 @@
     inputs.treefmt-nix.flakeModule
   ];
 
-  perSystem.treefmt.projectRootFile = "flake.lock";
+  perSystem.treefmt = {
+    programs = {
+      ruff-check.enable = true;
+      ruff-format.enable = true;
+    };
+    projectRootFile = "flake.lock";
+  };
 }

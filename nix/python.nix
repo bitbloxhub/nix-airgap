@@ -37,6 +37,7 @@
         package = pythonSet.nix-airgap;
         venv = pythonSet.mkVirtualEnv "nix-airgap-env" workspace.deps.default;
       };
+      devEnvironment = pythonSet.mkVirtualEnv "nix-airgap-dev-env" workspace.deps.all;
       overlay = workspace.mkPyprojectOverlay {
         sourcePreference = "wheel";
       };
@@ -56,6 +57,7 @@
     in
     {
       make-shells.default.packages = [
+        devEnvironment
         pkgs.python3
         pkgs.uv
       ];
