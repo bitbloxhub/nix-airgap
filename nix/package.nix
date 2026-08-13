@@ -9,9 +9,11 @@
         pkgs.runCommand "airgap-demo"
           {
             nativeBuildInputs = [ pkgs.hello ];
+            src = ../README.md;
           }
           ''
             mkdir -p "$out"
+            cp "$src" "$out/README.md"
 
             # Custom FOD dependencies.
             cp ${fod1} "$out/fod1"
