@@ -1,6 +1,18 @@
+Match host airgap exec "hostname | grep -qx client"
+    HostName 10.0.2.2
+    Port 13964
+
 Host airgap
     HostName 127.0.0.1
     Port 13964
+    User test
+    IdentityFile ./vm-key
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+
+Host client
+    HostName 127.0.0.1
+    Port 13965
     User test
     IdentityFile ./vm-key
     StrictHostKeyChecking no

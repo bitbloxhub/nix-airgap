@@ -107,3 +107,47 @@ Checks:
 nix flake check
 python3 -m py_compile src/airgap/cli.py
 ```
+
+### VMs
+
+`nix/vm.nix` defines two VMs:
+
+- `airgap`: hostname `airgap`, isolated network, SSH forwarded to host port `13964`.
+- `client`: hostname `client`, full internet access, SSH forwarded to host port `13965`.
+
+Prepare shared SSH key from repository root:
+
+```sh
+chmod 600 vm/vm-key
+```
+
+Start each VM from `vm/`, in separate terminals. The VM launcher changes into a
+temporary directory, so the config uses `$OLDPWD/..` to preserve the live repository share:
+
+```sh
+cd vm
+nix run ..#nixosConfigurations.airgap.config.system.build.vm
+```
+
+```sh
+cd vm
+nix run ..#nixosConfigurations.client.config.system.build.vm
+```
+
+Both VMs use `useBootLoader = true` and a 20 GiB root image. `boot.growPartition`
+expands the backing image's root partition and filesystem on first boot. Restart existing
+VMs with the new build; delete old qcow files only if they predate the 20 GiB image.
+
+The repository working tree is shared from `vm/..` through a raw 9p mount at
+`/run/shared-raw`, then exposed at `/work` through `bindfs` as `test:users`.
+Host ownership remains determined by the user launching the VM; no host UID is configured.
+
+From `vm/`, connect using aliases in `ssh_config`:
+
+```sh
+ssh -F ssh_config airgap
+ssh -F ssh_config client
+```
+
+The shared `airgap` SSH alias works from both host and client: host connections use
+`127.0.0.1:13964`; client connections use the host gateway at `10.0.2.2:13964`.
