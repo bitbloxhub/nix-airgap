@@ -6,22 +6,24 @@
     }:
     let
       demo =
-        pkgs.runCommand "airgap-demo" {
-          nativeBuildInputs = [ pkgs.hello ];
-        } ''
-          mkdir -p "$out"
+        pkgs.runCommand "airgap-demo"
+          {
+            nativeBuildInputs = [ pkgs.hello ];
+          }
+          ''
+            mkdir -p "$out"
 
-          # Custom FOD dependencies.
-          cp ${fod1} "$out/fod1"
-          cp ${fod2} "$out/fod2"
+            # Custom FOD dependencies.
+            cp ${fod1} "$out/fod1"
+            cp ${fod2} "$out/fod2"
 
-          # Native build dependency. Airgap planner should use the cached
-          # hello output without copying its source subtree.
-          hello > "$out/hello"
-          ${pkgs.ripgrep}/bin/rg --version > "$out/ripgrep-version"
-          ln -s ${pkgs.ripgrep}/bin/rg $out/rg
-          sleep 30
-        '';
+            # Native build dependency. Airgap planner should use the cached
+            # hello output without copying its source subtree.
+            hello > "$out/hello"
+            ${pkgs.ripgrep}/bin/rg --version > "$out/ripgrep-version"
+            ln -s ${pkgs.ripgrep}/bin/rg $out/rg
+            sleep 30
+          '';
       fod1 =
         pkgs.runCommand "custom-fod-1"
           {
