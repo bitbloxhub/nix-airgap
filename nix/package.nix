@@ -22,7 +22,6 @@
             hello > "$out/hello"
             ${pkgs.ripgrep}/bin/rg --version > "$out/ripgrep-version"
             ln -s ${pkgs.ripgrep}/bin/rg $out/rg
-            sleep 30
           '';
       fod1 =
         pkgs.runCommand "custom-fod-1"
