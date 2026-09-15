@@ -9,7 +9,7 @@ dependencies = ["httpx>=0.27"]
 nix-airgap = "airgap.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "editables"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

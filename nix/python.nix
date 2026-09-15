@@ -37,7 +37,11 @@
         package = pythonSet.nix-airgap;
         venv = pythonSet.mkVirtualEnv "nix-airgap-env" workspace.deps.default;
       };
-      devEnvironment = pythonSet.mkVirtualEnv "nix-airgap-dev-env" workspace.deps.all;
+      devEnvironment = devPythonSet.mkVirtualEnv "nix-airgap-dev-env" workspace.deps.all;
+      devPythonSet = pythonSet.overrideScope editableOverlay;
+      editableOverlay = workspace.mkEditablePyprojectOverlay {
+        root = "$REPO_ROOT";
+      };
       overlay = workspace.mkPyprojectOverlay {
         sourcePreference = "wheel";
       };
@@ -56,11 +60,17 @@
       };
     in
     {
-      make-shells.default.packages = [
-        devEnvironment
-        pkgs.python3
-        pkgs.uv
-      ];
+      make-shells.default = {
+        packages = [
+          devEnvironment
+          pkgs.python3
+          pkgs.uv
+        ];
+        shellHook = ''
+          unset PYTHONPATH
+          export REPO_ROOT=$(git rev-parse --show-toplevel)
+        '';
+      };
       packages = {
         inherit airgap;
         default = airgap;
