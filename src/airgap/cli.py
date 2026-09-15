@@ -6,16 +6,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import shlex
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 def run(*args: str, stdin: str | None = None, quiet: bool = False) -> str:
@@ -57,13 +61,19 @@ async def probe_batch(paths: list[str], caches: list[str]) -> dict[str, str | No
 			async with semaphore:
 				store_hash = Path(path).name.split("-", 1)[0]
 				url = f"{cache.rstrip('/')}/{store_hash}.narinfo"
+				logger.debug("Probing %s", url)
 				try:
 					response = await client.get(url, follow_redirects=True)
+					logger.debug("Probe response %s: HTTP %s", url, response.status_code)
 					return path, cache, response.status_code == 200
-				except httpx.HTTPError:
+				except httpx.HTTPError as error:
+					logger.debug("Probe failed %s: %s", url, error)
 					return path, cache, False
 
+		logger.debug("Starting cache probe batch: %d paths, %d caches", len(paths), len(caches))
+		started = time.perf_counter()
 		probes = await asyncio.gather(*(probe(path, cache) for path in paths for cache in caches))
+		logger.debug("Finished cache probe batch in %.2fs", time.perf_counter() - started)
 	available = {(path, cache): found for path, cache, found in probes}
 	return {
 		path: next(
@@ -169,7 +179,17 @@ def _main() -> None:
 		action="store_true",
 		help="Plan transfer without realizing, copying, or building",
 	)
+	parser.add_argument(
+		"--verbose",
+		action="store_true",
+		help="Log cache probe URLs, responses, and failures",
+	)
 	args = parser.parse_args()
+	logging.basicConfig(
+		level=logging.WARNING,
+		format="%(levelname)s: %(message)s",
+	)
+	logger.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
 	trusted_caches = args.trusted_caches or shlex.split(
 		os.environ.get("TRUSTED_CACHES", "https://cache.nixos.org")
 	)
