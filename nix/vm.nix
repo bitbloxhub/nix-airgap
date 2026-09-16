@@ -1,5 +1,6 @@
 {
   inputs,
+  self,
   ...
 }:
 {
@@ -17,6 +18,7 @@
               bindfs
               git
               jq
+              self.packages.x86_64-linux.default
             ];
             networking.hostName = "airgap";
             nix.settings = {
@@ -103,6 +105,7 @@
               bindfs
               git
               jq
+              self.packages.x86_64-linux.default
             ];
             fileSystems."/".autoResize = true;
             networking.hostName = "client";

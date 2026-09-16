@@ -143,10 +143,125 @@ def split_fods_by_metadata(
 	return copyable, broken
 
 
+def copy_paths_to_media(paths: list[str], media_cache: Path) -> None:
+	if not paths:
+		return
+	run(
+		"nix",
+		"copy",
+		"--no-check-sigs",
+		"--to",
+		f"file://{media_cache}",
+		"--stdin",
+		stdin="\n".join(paths) + "\n",
+	)
+
+
+def export_media(
+	media: str,
+	drv: str,
+	fod_drvs: list[str],
+	fods: list[str],
+	cache_frontier: list[str],
+	source_closure: set[str],
+	tmp: Path,
+) -> None:
+	media_path = Path(media).resolve()
+	if media_path.exists():
+		if not media_path.is_dir():
+			raise RuntimeError(f"media target is not a directory: {media_path}")
+		if any(media_path.iterdir()):
+			raise RuntimeError(f"media target is not empty: {media_path}")
+	else:
+		media_path.mkdir(parents=True)
+	media_cache = media_path / "cache"
+	media_cache.mkdir()
+	if fod_drvs:
+		print("==> Realising FODs locally")
+		run(
+			"nix",
+			"build",
+			"--out-link",
+			str(tmp / "fod-root"),
+			*(f"{fod_drv}^*" for fod_drv in fod_drvs),
+		)
+	if fods:
+		print("==> Exporting FODs")
+		copy_paths_to_media(fods, media_cache)
+	for cache in unique([line.split("\t", 1)[0] for line in cache_frontier]):
+		paths = [line.split("\t", 1)[1] for line in cache_frontier if line.startswith(f"{cache}\t")]
+		if paths:
+			print(f"==> Exporting trusted-cache frontier: {cache}")
+			run(
+				"nix",
+				"copy",
+				"--from",
+				cache,
+				"--to",
+				f"file://{media_cache}",
+				"--stdin",
+				stdin="\n".join(paths) + "\n",
+			)
+	print("==> Exporting derivation/source closure")
+	copy_paths_to_media(unique(list(source_closure)), media_cache)
+	manifest = {
+		"format": 1,
+		"root_drv": drv,
+		"paths": unique(
+			[
+				*source_closure,
+				*fods,
+				*(line.split("\t", 1)[1] for line in cache_frontier),
+			]
+		),
+	}
+	(media_path / "manifest.json").write_text(
+		json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+	)
+	print(f"==> Media export complete: {media_path}")
+
+
+def import_media(media: str) -> None:
+	media_path = Path(media).resolve()
+	manifest_path = media_path / "manifest.json"
+	media_cache = media_path / "cache"
+	if not manifest_path.is_file():
+		raise RuntimeError(f"media manifest missing: {manifest_path}")
+	if not media_cache.is_dir():
+		raise RuntimeError(f"media cache missing: {media_cache}")
+	manifest = json.loads(manifest_path.read_text())
+	if manifest.get("format") != 1:
+		raise RuntimeError("unsupported media manifest format")
+	root_drv = manifest.get("root_drv")
+	paths = manifest.get("paths")
+	if (
+		not isinstance(root_drv, str)
+		or not root_drv.startswith("/nix/store/")
+		or not isinstance(paths, list)
+		or not all(isinstance(path, str) and path.startswith("/nix/store/") for path in paths)
+	):
+		raise RuntimeError("invalid media manifest")
+	print("==> Importing media store paths")
+	run(
+		"nix",
+		"copy",
+		"--from",
+		f"file://{media_cache}",
+		"--stdin",
+		stdin="\n".join(paths) + "\n",
+	)
+	print("==> Building on air-gapped machine")
+	result = run("nix", "build", "--no-substitute", "--no-link", f"{root_drv}^*")
+	print(result, end="")
+
+
 def _main() -> None:
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("installable")
-	parser.add_argument("ssh_host")
+	parser.add_argument("installable", nargs="?")
+	parser.add_argument("ssh_host", nargs="?")
+	media_group = parser.add_mutually_exclusive_group()
+	media_group.add_argument("--export-media", metavar="PATH")
+	media_group.add_argument("--import-media", metavar="PATH")
 	parser.add_argument(
 		"--trusted-cache",
 		action="append",
@@ -185,25 +300,41 @@ def _main() -> None:
 		help="Log cache probe URLs, responses, and failures",
 	)
 	args = parser.parse_args()
+	if args.export_media and (not args.installable or args.ssh_host):
+		parser.error("--export-media requires INSTALLABLE and no SSH_HOST")
+	if args.import_media and (args.installable or args.ssh_host):
+		parser.error("--import-media takes no INSTALLABLE or SSH_HOST")
+	if (
+		not args.export_media
+		and not args.import_media
+		and (not args.installable or not args.ssh_host)
+	):
+		parser.error("INSTALLABLE and SSH_HOST required unless using media mode")
 	logging.basicConfig(
 		level=logging.WARNING,
 		format="%(levelname)s: %(message)s",
 	)
 	logger.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
-	trusted_caches = args.trusted_caches or shlex.split(
-		os.environ.get("TRUSTED_CACHES", "https://cache.nixos.org")
+	trusted_caches = (
+		args.trusted_caches
+		if args.trusted_caches is not None
+		else shlex.split(os.environ.get("TRUSTED_CACHES", "https://cache.nixos.org"))
 	)
+	if args.import_media:
+		import_media(args.import_media)
+		return
 	ssh_command = ["ssh"]
 	if ssh_config := os.environ.get("SSH_CONFIG"):
 		ssh_config = str(Path(ssh_config).resolve())
 		ssh_command.extend(["-F", ssh_config])
 		os.environ["NIX_SSHOPTS"] = f"-F {ssh_config}"
-	remote_store = f"ssh-ng://{args.ssh_host}"
-	ssh_command.append(args.ssh_host)
+	remote_store = f"ssh-ng://{args.ssh_host}" if args.ssh_host else None
+	if args.ssh_host:
+		ssh_command.append(args.ssh_host)
 
 	with tempfile.TemporaryDirectory(prefix="nix-airgap-") as tmp_name:
 		tmp = Path(tmp_name)
-		if not args.dry_run:
+		if not args.dry_run and not args.export_media:
 			print("==> Checking SSH")
 			subprocess.run([*ssh_command, "true"], check=True)
 
@@ -310,13 +441,23 @@ def _main() -> None:
 		if args.dry_run:
 			print("==> Dry run: no paths transferred or built")
 			return
+		if args.export_media:
+			export_media(
+				args.export_media,
+				drv,
+				fod_drvs,
+				fods,
+				cache_frontier,
+				source_closure,
+				tmp,
+			)
+			return
 
 		if fod_drvs:
-			print("==> Realising FODs locally without substitutes")
+			print("==> Realising FODs locally")
 			run(
 				"nix",
 				"build",
-				"--no-substitute",
 				"--out-link",
 				str(tmp / "fod-root"),
 				*(f"{fod_drv}^*" for fod_drv in fod_drvs),

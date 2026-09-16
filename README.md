@@ -2,34 +2,36 @@
 
 Transfer Nix builds to an air-gapped machine.
 
-## Use case
+## Modes
 
-Air-gapped Nix has three workflows:
+### Trusted caches
 
-| Workflow | Imports | Airgap builds |
-| --- | --- | ---: |
-| `nix-airgap` | CA paths and trusted outputs | Some |
-| Trusted import | Whole closure | Little or none |
-| Source/FOD-only (“rebuild the world”) | Inputs only | Almost everything |
+`nix-airgap` transfers cached outputs and builds cache misses on the air-gapped host.
+`cache.nixos.org` is trusted by default. Select caches with repeated `--trusted-cache`
+flags or `TRUSTED_CACHES`; either replaces the default list.
 
-### `nix-airgap`
+The account running `nix-airgap` need not be a Nix `trusted-user`: it transfers only CA
+paths, literal sources, evaluated `.drv` files, and outputs from selected caches.
 
-Use `nix-airgap` from a connected client to transfer cached outputs and build only
-cache misses on the air-gapped host. The `cache.nixos.org` signing key is trusted by
-default. Select the cache list per transfer with repeated `--trusted-cache` flags or
-`TRUSTED_CACHES`; either replaces the default cache list.
+### No trusted caches (“rebuild the world”)
 
-The SSH account need not be a Nix `trusted-user`: `nix-airgap` transfers only paths a
-non-trusted account can add—CA paths such as FODs and literal source inputs (e.g. `./.`), the evaluated `.drv` graph, and
-outputs from explicitly selected trusted caches.
+`nix-airgap` transfers only flake inputs and FOD/CA dependencies, then builds the
+remaining graph on the air-gapped host:
+
+```sh
+TRUSTED_CACHES='' nix run .#default -- INSTALLABLE SSH_HOST
+```
 
 ### Trusted import
 
-If the importing user is trusted by the air-gapped daemon, build normally and copy
-the complete closure to removable media, for example with a `file://` binary cache:
+A trusted importing user can copy the complete closure directly over SSH or via
+removable media with a `file://` binary cache:
 
 ```sh
 nix build .#whatever
+nix copy --to ssh://airgap .#whatever
+
+# Or use removable media:
 nix copy --to file:///mnt/usb/cache .#whatever
 
 # On the air-gapped machine:
@@ -38,12 +40,29 @@ nix copy --from file:///mnt/usb/cache --no-check-sigs /nix/store/...-result
 
 This trust model makes `nix-airgap` unnecessary.
 
-### Source/FOD-only transfer (“rebuild the world”)
+## Targets
 
-Run `nix-airgap` with no trusted caches. It transfers only flake inputs and FOD/CA dependencies, then builds the remaining graph on the air-gapped host:
+### SSH
 
 ```sh
-TRUSTED_CACHES='' nix run .#default -- INSTALLABLE SSH_HOST
+nix run .#default -- INSTALLABLE SSH_HOST
+```
+
+`SSH_HOST` is passed to OpenSSH and the Nix `ssh-ng` store URL. Set `SSH_CONFIG` for
+custom SSH settings; it is also exported through `NIX_SSHOPTS` for Nix store operations.
+
+### Removable media
+
+Export transfer material on the connected machine:
+
+```sh
+nix run .#default -- INSTALLABLE --export-media /mnt/usb/nix-airgap
+```
+
+Move and mount media on the air-gapped machine, then import and build:
+
+```sh
+nix run .#default -- --import-media /mnt/usb/nix-airgap
 ```
 
 ## Usage
@@ -61,9 +80,7 @@ SSH_CONFIG=./vm/ssh_config \
   nix run .#default -- .#demo airgap
 ```
 
-`INSTALLABLE` may be a flake installable or a `.drv` path. `SSH_HOST` is resolved by
-OpenSSH. Set `SSH_CONFIG` when a custom SSH config is needed.
-
+`INSTALLABLE` may be a flake installable or a `.drv` path.
 Remote builds do not create a result link by default. Persist one explicitly:
 
 ```sh
@@ -120,17 +137,6 @@ The FOD workaround avoids forwarding untrusted cache signatures. It addresses th
 Cachix metadata issue documented in
 [cachix/cachix#740](https://github.com/cachix/cachix/issues/740).
 
-## SSH
-
-`SSH_HOST` is passed to both OpenSSH and the Nix `ssh-ng` store URL. Set
-`SSH_CONFIG` to an OpenSSH config file when the host needs custom connection settings;
-the tool passes it to `ssh` and exports it through `NIX_SSHOPTS` for Nix store operations.
-
-```sh
-SSH_CONFIG=/absolute/path/to/ssh_config nix run .#default -- .#demo airgap
-```
-
-
 ## Development
 
 Enter the flake development shell, then use uv:
@@ -159,6 +165,13 @@ Then inspect the result on the air-gapped VM:
 ```sh
 ssh -F ssh_config airgap
 ls -l /tmp/demo
+```
+
+Test removable-media transfer with the shared VM directory:
+
+```sh
+ssh -F ssh_config client 'cd /work && nix-airgap .#demo --export-media /work/vm/media'
+ssh -F ssh_config airgap 'nix-airgap --import-media /work/vm/media'
 ```
 
 Checks:
