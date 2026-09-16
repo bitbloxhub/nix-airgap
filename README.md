@@ -40,8 +40,11 @@ This trust model makes `nix-airgap` unnecessary.
 
 ### Source/FOD-only transfer (“rebuild the world”)
 
-Transfer flake inputs and FOD/CA dependencies, then build the remaining graph with
-substituters disabled. Bootstrap material remains necessary; see the [FOD-only copy script](https://discourse.nixos.org/t/best-practices-for-air-gapped-nixos-servers-with-untrusted-users/79498/11).
+Run `nix-airgap` with no trusted caches. It transfers only flake inputs and FOD/CA dependencies, then builds the remaining graph on the air-gapped host:
+
+```sh
+TRUSTED_CACHES='' nix run .#default -- INSTALLABLE SSH_HOST
+```
 
 ## Usage
 
